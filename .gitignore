@@ -1,0 +1,11 @@
+cat > .gitignore <<'EOF'
+config/database.php
+assets/uploads/
+*.log
+*.sql
+*.gz
+.env
+.DS_Store
+.vscode/
+.idea/
+EOF
