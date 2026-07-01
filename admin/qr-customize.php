@@ -22,13 +22,8 @@ $stmt = $pdo->prepare("SELECT * FROM qr_codes WHERE id = ?");
 $stmt->execute([$id]);
 $qr = $stmt->fetch();
 
-if (!$qr) {
-    header('Location: manage-qr.php');
-    exit;
-}
-
 $verification_url = APP_URL . '/verify?token=' . $qr['token'];
-$content = json_decode($qr['content_data'] ?? '{}', true);
+$content = json_decode($qr['content_data'] ?? '{}', true);  // This should be the wizard data
 $design = json_decode($qr['design_settings'] ?? '{}', true);
 
 // Handle design update
@@ -51,6 +46,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_design'])) {
     $stmt = $pdo->prepare("SELECT * FROM qr_codes WHERE id = ?");
     $stmt->execute([$id]);
     $qr = $stmt->fetch();
+    $design = json_decode($qr['design_settings'] ?? '{}', true);
 }
 
 require_once '../includes/header.php';
@@ -97,12 +93,12 @@ require_once '../includes/header.php';
                     
                     <div class="mt-3">
                         <div class="btn-group" role="group">
-                            <button onclick="downloadQR('png')" class="btn btn-success">
+                            <a href="qr-download.php?id=<?php echo $qr['id']; ?>&format=png" class="btn btn-success" target="_blank">
                                 <i class="bi bi-download"></i> PNG
-                            </button>
-                            <button onclick="downloadQR('svg')" class="btn btn-outline-secondary">
+                            </a>
+                            <a href="qr-download.php?id=<?php echo $qr['id']; ?>&format=svg" class="btn btn-outline-secondary" target="_blank">
                                 <i class="bi bi-download"></i> SVG
-                            </button>
+                            </a>
                             <button onclick="copyURL()" class="btn btn-outline-primary">
                                 <i class="bi bi-clipboard"></i> Copy URL
                             </button>
@@ -138,7 +134,7 @@ require_once '../includes/header.php';
                         <div class="row g-3">
                             <div class="col-md-6">
                                 <label class="form-label">Pattern Style</label>
-                                <select class="form-select" name="pattern" id="pattern" onchange="updateQR()">
+                                <select class="form-select" name="pattern" id="pattern">
                                     <option value="dots" <?php echo ($design['pattern'] ?? 'dots') == 'dots' ? 'selected' : ''; ?>>Dots</option>
                                     <option value="squares" <?php echo ($design['pattern'] ?? '') == 'squares' ? 'selected' : ''; ?>>Squares</option>
                                     <option value="rounded" <?php echo ($design['pattern'] ?? '') == 'rounded' ? 'selected' : ''; ?>>Rounded</option>
@@ -147,7 +143,7 @@ require_once '../includes/header.php';
                             
                             <div class="col-md-6">
                                 <label class="form-label">Corner Style</label>
-                                <select class="form-select" name="corner" id="corner" onchange="updateQR()">
+                                <select class="form-select" name="corner" id="corner">
                                     <option value="square" <?php echo ($design['corner'] ?? 'square') == 'square' ? 'selected' : ''; ?>>Square</option>
                                     <option value="rounded" <?php echo ($design['corner'] ?? '') == 'rounded' ? 'selected' : ''; ?>>Rounded</option>
                                     <option value="circle" <?php echo ($design['corner'] ?? '') == 'circle' ? 'selected' : ''; ?>>Circle</option>
@@ -158,19 +154,19 @@ require_once '../includes/header.php';
                                 <label class="form-label">QR Color</label>
                                 <input type="color" class="form-control" name="qr_color" id="qr_color"
                                        value="<?php echo $design['color'] ?? '#8B0000'; ?>" 
-                                       style="height: 50px; cursor: pointer;" onchange="updateQR()">
+                                       style="height: 50px; cursor: pointer;">
                             </div>
                             
                             <div class="col-md-6">
                                 <label class="form-label">Background Color</label>
                                 <input type="color" class="form-control" name="bg_color" id="bg_color"
                                        value="<?php echo $design['background'] ?? '#FFFFFF'; ?>" 
-                                       style="height: 50px; cursor: pointer;" onchange="updateQR()">
+                                       style="height: 50px; cursor: pointer;">
                             </div>
                             
                             <div class="col-md-6">
                                 <label class="form-label">QR Size</label>
-                                <select class="form-select" name="qr_size" id="qr_size" onchange="updateQR()">
+                                <select class="form-select" name="qr_size" id="qr_size">
                                     <option value="200" <?php echo ($design['size'] ?? 300) == 200 ? 'selected' : ''; ?>>Small (200px)</option>
                                     <option value="300" <?php echo ($design['size'] ?? 300) == 300 ? 'selected' : ''; ?>>Medium (300px)</option>
                                     <option value="400" <?php echo ($design['size'] ?? 300) == 400 ? 'selected' : ''; ?>>Large (400px)</option>
@@ -180,7 +176,7 @@ require_once '../includes/header.php';
                             
                             <div class="col-md-6">
                                 <label class="form-label">Padding (space around QR)</label>
-                                <select class="form-select" name="padding" id="padding" onchange="updateQR()">
+                                <select class="form-select" name="padding" id="padding">
                                     <option value="15" <?php echo ($design['padding'] ?? 25) == 15 ? 'selected' : ''; ?>>Small (15px)</option>
                                     <option value="25" <?php echo ($design['padding'] ?? 25) == 25 ? 'selected' : ''; ?>>Medium (25px)</option>
                                     <option value="35" <?php echo ($design['padding'] ?? 25) == 35 ? 'selected' : ''; ?>>Large (35px)</option>
@@ -190,7 +186,7 @@ require_once '../includes/header.php';
                         </div>
                         
                         <div class="mt-3">
-                            <button type="submit" class="btn btn-primary w-100">
+                            <button type="submit" class="btn btn-primary w-100" id="saveDesignBtn">
                                 <i class="bi bi-save"></i> Save Design
                             </button>
                         </div>
@@ -217,6 +213,7 @@ require_once '../includes/header.php';
 <script>
 // QR Code variables
 const qrUrl = '<?php echo $verification_url; ?>';
+let qrCode = null;
 let currentQRCanvas = null;
 
 // Generate QR on load
@@ -369,50 +366,42 @@ function applyCustomStyles(canvas, pattern, corner, color, bgColor) {
     }
 }
 
-function downloadQR(format) {
-    if (!currentQRCanvas) {
+// Save design via AJAX to avoid page reload
+document.getElementById('saveDesignBtn')?.addEventListener('click', function(e) {
+    e.preventDefault();
+    
+    const form = document.getElementById('designForm');
+    const formData = new FormData(form);
+    
+    this.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span> Saving...';
+    this.disabled = true;
+    
+    fetch('qr-customize.php?id=<?php echo $id; ?>', {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => response.text())
+    .then(() => {
         Swal.fire({
-            icon: 'warning',
-            title: 'No QR Code',
-            text: 'Please generate a QR code first.'
+            icon: 'success',
+            title: 'Design Updated!',
+            timer: 1500,
+            showConfirmButton: false
         });
-        return;
-    }
-    
-    // Create a new canvas for the final image
-    const finalCanvas = document.createElement('canvas');
-    const ctx = finalCanvas.getContext('2d');
-    
-    // Get settings
-    const bgColor = document.getElementById('bg_color').value || '#FFFFFF';
-    const padding = parseInt(document.getElementById('padding').value) || 25;
-    const size = parseInt(document.getElementById('qr_size').value) || 300;
-    const totalSize = size + (padding * 2);
-    
-    // Set canvas size
-    finalCanvas.width = totalSize;
-    finalCanvas.height = totalSize;
-    
-    // Draw background
-    ctx.fillStyle = bgColor;
-    ctx.fillRect(0, 0, totalSize, totalSize);
-    
-    // Draw the QR code canvas onto the final canvas with padding
-    ctx.drawImage(currentQRCanvas, padding, padding, size, size);
-    
-    // Create download link
-    const link = document.createElement('a');
-    if (format === 'png') {
-        link.download = 'muni-vc-qr.png';
-        link.href = finalCanvas.toDataURL('image/png');
-    } else if (format === 'svg') {
-        link.download = 'muni-vc-qr.svg';
-        link.href = finalCanvas.toDataURL('image/png');
-    }
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-}
+        updateQR();
+        this.innerHTML = '<i class="bi bi-save"></i> Save Design';
+        this.disabled = false;
+    })
+    .catch(() => {
+        Swal.fire({
+            icon: 'error',
+            title: 'Error',
+            text: 'Failed to save design'
+        });
+        this.innerHTML = '<i class="bi bi-save"></i> Save Design';
+        this.disabled = false;
+    });
+});
 
 function copyURL() {
     const url = '<?php echo $verification_url; ?>';
@@ -439,6 +428,12 @@ function copyURL() {
         });
     });
 }
+
+// Update QR when controls change (for live preview)
+document.querySelectorAll('#pattern, #corner, #qr_color, #bg_color, #qr_size, #padding').forEach(el => {
+    el.addEventListener('change', updateQR);
+    el.addEventListener('input', updateQR);
+});
 </script>
 
 <style>

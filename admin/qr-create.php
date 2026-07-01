@@ -3,15 +3,54 @@ require_once '../config/database.php';
 require_once '../includes/auth.php';
 requireAuth();
 
+// ********** HANDLE AJAX CREATE QR REQUEST **********
+if (isset($_GET['ajax']) && $_GET['ajax'] === 'create_qr') {
+    header('Content-Type: application/json');
+    
+    try {
+        // ONLY use wizard data - NO profile fallback
+        $content = $_SESSION['qr_wizard']['content'] ?? [];
+        $design = $_SESSION['qr_wizard']['design'] ?? [];
+        
+        // Validate - MUST have wizard data
+        if (empty($content) || empty($content['full_name']) || empty($content['title_position']) || empty($content['office'])) {
+            echo json_encode(['success' => false, 'message' => 'Please complete all required fields in Step 1.']);
+            exit;
+        }
+        
+        // Generate token
+        $token = 'vc_' . bin2hex(random_bytes(16));
+        $name = $content['title'] ?? 'QR Code - ' . date('Y-m-d H:i');
+        
+        // Insert - ONLY wizard data
+        $insert_stmt = $pdo->prepare("INSERT INTO qr_codes (name, token, status, design_settings, content_data) VALUES (?, ?, 'active', ?, ?)");
+        $insert_stmt->execute([
+            $name,
+            $token,
+            json_encode($design),
+            json_encode($content)
+        ]);
+        
+        $qr_id = $pdo->lastInsertId();
+        
+        // Clear wizard session
+        unset($_SESSION['qr_wizard']);
+        
+        echo json_encode(['success' => true, 'qr_id' => $qr_id]);
+        exit;
+        
+    } catch (PDOException $e) {
+        echo json_encode(['success' => false, 'message' => 'Database error: ' . $e->getMessage()]);
+        exit;
+    } catch (Exception $e) {
+        echo json_encode(['success' => false, 'message' => 'Error: ' . $e->getMessage()]);
+        exit;
+    }
+}
+
 $step = isset($_GET['step']) ? intval($_GET['step']) : 1;
-$error = '';
-$success = '';
 
-// Get profile data
-$profile_stmt = $pdo->query("SELECT * FROM profiles LIMIT 1");
-$profile = $profile_stmt->fetch();
-
-// Initialize session data for wizard
+// Initialize session - NO PROFILE DATA
 if (!isset($_SESSION['qr_wizard'])) {
     $_SESSION['qr_wizard'] = [
         'content' => [],
@@ -40,6 +79,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'twitter' => trim($_POST['twitter'] ?? '')
         ];
         
+        // Handle photo upload
         if (isset($_FILES['profile_photo']) && $_FILES['profile_photo']['error'] === UPLOAD_ERR_OK) {
             $file = $_FILES['profile_photo'];
             $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
@@ -76,98 +116,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-// ********** HANDLE AJAX CREATE QR REQUEST **********
-if (isset($_GET['ajax']) && $_GET['ajax'] === 'create_qr') {
-    header('Content-Type: application/json');
-    
-    // Get profile directly from database
-    $profile_data = $pdo->query("SELECT * FROM profiles LIMIT 1")->fetch();
-    
-    if (!$profile_data) {
-        echo json_encode(['success' => false, 'message' => 'No profile found']);
-        exit;
-    }
-    
-    // Get design from session or use defaults
-    $design = $_SESSION['qr_wizard']['design'] ?? [];
-    if (empty($design)) {
-        $design = [
-            'pattern' => 'dots',
-            'corner' => 'square',
-            'color' => '#8B0000',
-            'background' => '#FFFFFF',
-            'size' => 300,
-            'padding' => 25
-        ];
-    }
-    
-    // Create content from profile
-    $content = [
-        'title' => 'Vice Chancellor Official QR',
-        'description' => 'Official verification QR code',
-        'full_name' => $profile_data['full_name'] ?? '',
-        'title_position' => $profile_data['title'] ?? '',
-        'office' => $profile_data['office'] ?? '',
-        'biography' => $profile_data['biography'] ?? '',
-        'email' => $profile_data['email'] ?? '',
-        'phone' => $profile_data['phone'] ?? '',
-        'website' => $profile_data['website'] ?? '',
-        'linkedin' => $profile_data['linkedin'] ?? '',
-        'facebook' => $profile_data['facebook'] ?? '',
-        'twitter' => $profile_data['twitter'] ?? '',
-        'photo' => $profile_data['photo'] ?? ''
-    ];
-    
-    // Generate token
-    $token = 'vc_' . bin2hex(random_bytes(16));
-    $name = 'Vice Chancellor Official QR';
-    
-    try {
-        $insert_stmt = $pdo->prepare("INSERT INTO qr_codes (name, token, status, design_settings, content_data) VALUES (?, ?, 'active', ?, ?)");
-        $insert_stmt->execute([
-            $name,
-            $token,
-            json_encode($design),
-            json_encode($content)
-        ]);
-        
-        $qr_id = $pdo->lastInsertId();
-        
-        // Clear wizard session
-        unset($_SESSION['qr_wizard']);
-        
-        echo json_encode(['success' => true, 'qr_id' => $qr_id]);
-        exit;
-        
-    } catch (PDOException $e) {
-        echo json_encode(['success' => false, 'message' => 'Database error: ' . $e->getMessage()]);
-        exit;
-    } catch (Exception $e) {
-        echo json_encode(['success' => false, 'message' => 'Error: ' . $e->getMessage()]);
-        exit;
-    }
-}
-
-// Get current wizard data
+// Get current wizard data - NO PROFILE
 $wizard_content = $_SESSION['qr_wizard']['content'] ?? [];
 $wizard_design = $_SESSION['qr_wizard']['design'] ?? [];
-
-// Pre-fill with profile data if empty
-if (empty($wizard_content) && $step == 1 && $profile) {
-    $wizard_content = [
-        'full_name' => $profile['full_name'] ?? '',
-        'title_position' => $profile['title'] ?? '',
-        'office' => $profile['office'] ?? '',
-        'biography' => $profile['biography'] ?? '',
-        'email' => $profile['email'] ?? '',
-        'phone' => $profile['phone'] ?? '',
-        'website' => $profile['website'] ?? '',
-        'linkedin' => $profile['linkedin'] ?? '',
-        'facebook' => $profile['facebook'] ?? '',
-        'twitter' => $profile['twitter'] ?? '',
-        'photo' => $profile['photo'] ?? ''
-    ];
-}
 
 require_once '../includes/header.php';
 ?>
@@ -215,16 +166,9 @@ require_once '../includes/header.php';
     border-color: #28a745;
 }
 
-.step-circle .checkmark {
-    display: none;
-}
-
-.step-circle.completed .checkmark {
-    display: block;
-}
-.step-circle.completed .step-number {
-    display: none;
-}
+.step-circle .checkmark { display: none; }
+.step-circle.completed .checkmark { display: block; }
+.step-circle.completed .step-number { display: none; }
 
 .step-label {
     margin-top: 8px;
@@ -236,12 +180,8 @@ require_once '../includes/header.php';
     letter-spacing: 0.5px;
 }
 
-.step-label.active {
-    color: #8B0000;
-}
-.step-label.completed {
-    color: #28a745;
-}
+.step-label.active { color: #8B0000; }
+.step-label.completed { color: #28a745; }
 
 .step-arrow {
     flex: 1;
@@ -253,12 +193,8 @@ require_once '../includes/header.php';
     min-width: 40px;
 }
 
-.step-arrow.active {
-    background: #8B0000;
-}
-.step-arrow.completed {
-    background: #28a745;
-}
+.step-arrow.active { background: #8B0000; }
+.step-arrow.completed { background: #28a745; }
 
 .step-arrow::after {
     content: '';
@@ -270,25 +206,13 @@ require_once '../includes/header.php';
     border-bottom: 5px solid transparent;
 }
 
-.step-arrow.active::after {
-    border-left-color: #8B0000;
-}
-.step-arrow.completed::after {
-    border-left-color: #28a745;
-}
+.step-arrow.active::after { border-left-color: #8B0000; }
+.step-arrow.completed::after { border-left-color: #28a745; }
 
 @media (max-width: 768px) {
-    .step-circle {
-        width: 40px;
-        height: 40px;
-        font-size: 14px;
-    }
-    .step-label {
-        font-size: 10px;
-    }
-    .step-arrow {
-        min-width: 20px;
-    }
+    .step-circle { width: 40px; height: 40px; font-size: 14px; }
+    .step-label { font-size: 10px; }
+    .step-arrow { min-width: 20px; }
 }
 </style>
 
@@ -297,14 +221,6 @@ require_once '../includes/header.php';
         <h2><i class="bi bi-magic text-primary"></i> Create QR Code</h2>
         <span class="badge bg-primary">Step <?php echo $step; ?> of 4</span>
     </div>
-    
-    <?php if (isset($_SESSION['qr_error'])): ?>
-        <div class="alert alert-danger alert-dismissible fade show">
-            <i class="bi bi-exclamation-triangle-fill"></i> <?php echo $_SESSION['qr_error']; ?>
-            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-        </div>
-        <?php unset($_SESSION['qr_error']); ?>
-    <?php endif; ?>
     
     <!-- Step Progress -->
     <div class="card border-0 shadow-sm mb-4">
@@ -352,71 +268,74 @@ require_once '../includes/header.php';
                 <h4 class="mb-3"><i class="bi bi-pencil-square text-primary"></i> Step 1: Add Content</h4>
                 <p class="text-muted mb-4">Enter the information you want to display when the QR code is scanned.</p>
                 
-                <form method="POST" enctype="multipart/form-data">
+                <form method="POST" enctype="multipart/form-data" id="step1Form">
                     <input type="hidden" name="action" value="save_content">
                     
                     <div class="row g-3">
                         <div class="col-md-12">
                             <label class="form-label">QR Code Title/Name *</label>
                             <input type="text" class="form-control" name="qr_title" 
-                                   value="<?php echo htmlspecialchars($wizard_content['title'] ?? 'Vice Chancellor Official QR'); ?>" required>
+                                   value="<?php echo htmlspecialchars($wizard_content['title'] ?? ''); ?>" placeholder="Enter QR code name" required>
                         </div>
                         <div class="col-md-12">
                             <label class="form-label">Description</label>
-                            <textarea class="form-control" name="qr_description" rows="2"><?php echo htmlspecialchars($wizard_content['description'] ?? 'Official verification QR code'); ?></textarea>
+                            <textarea class="form-control" name="qr_description" rows="2" placeholder="Enter description"><?php echo htmlspecialchars($wizard_content['description'] ?? ''); ?></textarea>
                         </div>
                         <div class="col-md-6">
                             <label class="form-label">Full Name *</label>
                             <input type="text" class="form-control" name="full_name" 
-                                   value="<?php echo htmlspecialchars($wizard_content['full_name'] ?? ''); ?>" required>
+                                   value="<?php echo htmlspecialchars($wizard_content['full_name'] ?? ''); ?>" placeholder="Enter full name" required>
                         </div>
                         <div class="col-md-6">
                             <label class="form-label">Title/Position *</label>
                             <input type="text" class="form-control" name="title_position" 
-                                   value="<?php echo htmlspecialchars($wizard_content['title_position'] ?? ''); ?>" required>
+                                   value="<?php echo htmlspecialchars($wizard_content['title_position'] ?? ''); ?>" placeholder="Enter title/position" required>
                         </div>
                         <div class="col-md-12">
                             <label class="form-label">Office *</label>
                             <input type="text" class="form-control" name="office" 
-                                   value="<?php echo htmlspecialchars($wizard_content['office'] ?? ''); ?>" required>
+                                   value="<?php echo htmlspecialchars($wizard_content['office'] ?? ''); ?>" placeholder="Enter office/department" required>
                         </div>
                         <div class="col-md-12">
                             <label class="form-label">Biography</label>
-                            <textarea class="form-control" name="biography" rows="3"><?php echo htmlspecialchars($wizard_content['biography'] ?? ''); ?></textarea>
+                            <textarea class="form-control" name="biography" rows="3" placeholder="Enter biography"><?php echo htmlspecialchars($wizard_content['biography'] ?? ''); ?></textarea>
                         </div>
                         <div class="col-md-6">
                             <label class="form-label">Email</label>
                             <input type="email" class="form-control" name="email" 
-                                   value="<?php echo htmlspecialchars($wizard_content['email'] ?? ''); ?>">
+                                   value="<?php echo htmlspecialchars($wizard_content['email'] ?? ''); ?>" placeholder="Enter email">
                         </div>
                         <div class="col-md-6">
                             <label class="form-label">Phone</label>
                             <input type="text" class="form-control" name="phone" 
-                                   value="<?php echo htmlspecialchars($wizard_content['phone'] ?? ''); ?>">
+                                   value="<?php echo htmlspecialchars($wizard_content['phone'] ?? ''); ?>" placeholder="Enter phone number">
                         </div>
                         <div class="col-md-12">
                             <label class="form-label">Website</label>
                             <input type="url" class="form-control" name="website" 
-                                   value="<?php echo htmlspecialchars($wizard_content['website'] ?? ''); ?>">
+                                   value="<?php echo htmlspecialchars($wizard_content['website'] ?? ''); ?>" placeholder="Enter website URL">
                         </div>
                         <div class="col-md-4">
                             <label class="form-label">LinkedIn</label>
                             <input type="url" class="form-control" name="linkedin" 
-                                   value="<?php echo htmlspecialchars($wizard_content['linkedin'] ?? ''); ?>">
+                                   value="<?php echo htmlspecialchars($wizard_content['linkedin'] ?? ''); ?>" placeholder="LinkedIn URL">
                         </div>
                         <div class="col-md-4">
                             <label class="form-label">Facebook</label>
                             <input type="url" class="form-control" name="facebook" 
-                                   value="<?php echo htmlspecialchars($wizard_content['facebook'] ?? ''); ?>">
+                                   value="<?php echo htmlspecialchars($wizard_content['facebook'] ?? ''); ?>" placeholder="Facebook URL">
                         </div>
                         <div class="col-md-4">
                             <label class="form-label">Twitter / X</label>
                             <input type="url" class="form-control" name="twitter" 
-                                   value="<?php echo htmlspecialchars($wizard_content['twitter'] ?? ''); ?>">
+                                   value="<?php echo htmlspecialchars($wizard_content['twitter'] ?? ''); ?>" placeholder="Twitter URL">
                         </div>
                         <div class="col-md-12">
                             <label class="form-label">Profile Photo</label>
                             <input type="file" class="form-control" name="profile_photo" accept="image/*">
+                            <?php if (!empty($wizard_content['photo'])): ?>
+                                <small class="text-success">Current: <?php echo $wizard_content['photo']; ?></small>
+                            <?php endif; ?>
                         </div>
                     </div>
                     
@@ -429,7 +348,7 @@ require_once '../includes/header.php';
                 <h4 class="mb-3"><i class="bi bi-palette text-primary"></i> Step 2: Design QR Code</h4>
                 <p class="text-muted mb-4">Customize the appearance of your QR code.</p>
                 
-                <form method="POST">
+                <form method="POST" id="step2Form">
                     <input type="hidden" name="action" value="save_design">
                     
                     <div class="row g-4">
@@ -498,6 +417,8 @@ require_once '../includes/header.php';
                                 <p><strong>Name:</strong> <?php echo htmlspecialchars($wizard_content['full_name'] ?? 'N/A'); ?></p>
                                 <p><strong>Title:</strong> <?php echo htmlspecialchars($wizard_content['title_position'] ?? 'N/A'); ?></p>
                                 <p><strong>Office:</strong> <?php echo htmlspecialchars($wizard_content['office'] ?? 'N/A'); ?></p>
+                                <p><strong>Email:</strong> <?php echo htmlspecialchars($wizard_content['email'] ?? 'N/A'); ?></p>
+                                <p><strong>Phone:</strong> <?php echo htmlspecialchars($wizard_content['phone'] ?? 'N/A'); ?></p>
                             </div>
                         </div>
                         <div class="card border mt-3">
@@ -506,6 +427,8 @@ require_once '../includes/header.php';
                                 <p><strong>Pattern:</strong> <?php echo ucfirst($wizard_design['pattern'] ?? 'dots'); ?></p>
                                 <p><strong>Corner:</strong> <?php echo ucfirst($wizard_design['corner'] ?? 'square'); ?></p>
                                 <p><strong>Color:</strong> <span style="display:inline-block; width:20px; height:20px; background:<?php echo $wizard_design['color'] ?? '#8B0000'; ?>; border-radius:3px;"></span></p>
+                                <p><strong>Size:</strong> <?php echo $wizard_design['size'] ?? 300; ?>px</p>
+                                <p><strong>Padding:</strong> <?php echo $wizard_design['padding'] ?? 25; ?>px</p>
                             </div>
                         </div>
                     </div>
@@ -559,8 +482,8 @@ require_once '../includes/header.php';
                         <div class="row justify-content-center mt-3">
                             <div class="col-md-8">
                                 <div class="bg-light p-3 rounded text-start">
-                                    <p class="mb-1"><strong>Title:</strong> Vice Chancellor Official QR</p>
-                                    <p class="mb-1"><strong>Name:</strong> <?php echo htmlspecialchars($profile['full_name'] ?? 'N/A'); ?></p>
+                                    <p class="mb-1"><strong>Title:</strong> <?php echo htmlspecialchars($wizard_content['title'] ?? 'N/A'); ?></p>
+                                    <p class="mb-1"><strong>Name:</strong> <?php echo htmlspecialchars($wizard_content['full_name'] ?? 'N/A'); ?></p>
                                     <p class="mb-0"><strong>Design:</strong> <?php echo ucfirst($wizard_design['pattern'] ?? 'dots'); ?> | <?php echo ucfirst($wizard_design['corner'] ?? 'square'); ?></p>
                                 </div>
                             </div>
@@ -589,37 +512,39 @@ require_once '../includes/header.php';
 document.addEventListener('DOMContentLoaded', function() {
     const createBtn = document.getElementById('createBtn');
     if (createBtn) {
-        createBtn.addEventListener('click', function(e) {
-            // Disable button and show loading
+        createBtn.addEventListener('click', function() {
             this.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span> Creating...';
             this.disabled = true;
             
-            // Make AJAX request
             fetch('qr-create.php?ajax=create_qr')
-                .then(response => response.json())
+                .then(response => {
+                    if (!response.ok) {
+                        return response.text().then(text => {
+                            throw new Error('Server error: ' + text.substring(0, 100));
+                        });
+                    }
+                    return response.json();
+                })
                 .then(data => {
                     if (data.success) {
-                        // Redirect to customize page
                         window.location.href = 'qr-customize.php?id=' + data.qr_id + '&generated=1';
                     } else {
-                        // Show error
                         Swal.fire({
                             icon: 'error',
                             title: 'Error',
                             text: data.message || 'Failed to create QR code'
                         });
-                        // Re-enable button
                         this.innerHTML = '<i class="bi bi-check-circle"></i> Create QR Code';
                         this.disabled = false;
                     }
                 })
                 .catch(error => {
+                    console.error('Error:', error);
                     Swal.fire({
                         icon: 'error',
                         title: 'Error',
-                        text: 'Network error: ' + error.message
+                        text: 'Failed to create QR code: ' + error.message
                     });
-                    // Re-enable button
                     this.innerHTML = '<i class="bi bi-check-circle"></i> Create QR Code';
                     this.disabled = false;
                 });

@@ -5,13 +5,15 @@ require_once '../config/database.php';
 $token = $_GET['token'] ?? null;
 
 // Initialize variables
-$profile = null;
 $qrData = null;
 $isValid = false;
 $error = null;
+$scanCount = 0;
+$content = [];
 
 try {
     if ($token) {
+        // Find QR code by token
         $stmt = $pdo->prepare("SELECT * FROM qr_codes WHERE token = ?");
         $stmt->execute([$token]);
         $qrData = $stmt->fetch();
@@ -20,14 +22,32 @@ try {
             if ($qrData['status'] === 'active') {
                 $isValid = true;
                 
-                $stmt = $pdo->prepare("UPDATE qr_codes SET scan_count = scan_count + 1, last_scan = NOW() WHERE id = ?");
+                // Decode the content data from the QR code
+                $content = json_decode($qrData['content_data'] ?? '{}', true);
+                $scanCount = $qrData['scan_count'] ?? 0;
+                
+                // Update scan count with row locking
+                $pdo->beginTransaction();
+                
+                $stmt = $pdo->prepare("SELECT scan_count FROM qr_codes WHERE id = ? FOR UPDATE");
                 $stmt->execute([$qrData['id']]);
+                $current = $stmt->fetch();
+                $newCount = ($current['scan_count'] ?? 0) + 1;
+                
+                $stmt = $pdo->prepare("UPDATE qr_codes SET scan_count = ?, last_scan = NOW() WHERE id = ?");
+                $stmt->execute([$newCount, $qrData['id']]);
                 
                 $stmt = $pdo->prepare("INSERT INTO scans (qr_id) VALUES (?)");
                 $stmt->execute([$qrData['id']]);
                 
-                $stmt = $pdo->query("SELECT * FROM profiles LIMIT 1");
-                $profile = $stmt->fetch();
+                $pdo->commit();
+                
+                // Get updated data
+                $stmt = $pdo->prepare("SELECT * FROM qr_codes WHERE id = ?");
+                $stmt->execute([$qrData['id']]);
+                $qrData = $stmt->fetch();
+                $scanCount = $qrData['scan_count'] ?? 0;
+                
             } else {
                 $error = 'This QR Code has been deactivated.';
             }
@@ -35,24 +55,115 @@ try {
             $error = 'Invalid QR Code. Please scan a valid verification code.';
         }
     } else {
-        $stmt = $pdo->query("SELECT * FROM profiles LIMIT 1");
-        $profile = $stmt->fetch();
-        
-        $stmt = $pdo->prepare("SELECT * FROM qr_codes WHERE status = 'active' ORDER BY id DESC LIMIT 1");
-        $stmt->execute();
-        $qrData = $stmt->fetch();
-        
-        if ($profile && $qrData) {
-            $isValid = true;
-        }
+        $error = 'No QR code token provided. Please scan a valid QR code.';
     }
 } catch (PDOException $e) {
+    if (isset($pdo) && $pdo->inTransaction()) {
+        $pdo->rollBack();
+    }
+    error_log('Verification error: ' . $e->getMessage());
+    $error = 'System error. Please try again later.';
+} catch (Exception $e) {
+    if (isset($pdo) && $pdo->inTransaction()) {
+        $pdo->rollBack();
+    }
+    error_log('Verification error: ' . $e->getMessage());
     $error = 'System error. Please try again later.';
 }
 
-$showVerification = ($isValid && $profile);
+// Function to check if image file exists and is valid
+function getValidImagePath($photoFile) {
+    if (empty($photoFile)) {
+        return null;
+    }
+    
+    // Base path
+    $basePath = '../assets/uploads/profiles/';
+    
+    // Define allowed image extensions with their MIME types
+    // JFIF is essentially JPEG with .jfif extension
+    $supportedFormats = [
+        // Standard formats
+        'jpg' => 'image/jpeg',
+        'jpeg' => 'image/jpeg',
+        'jfif' => 'image/jpeg',      // JFIF format - same as JPEG
+        'jpe' => 'image/jpeg',       // JPEG variant
+        'jif' => 'image/jpeg',       // JPEG variant
+        'png' => 'image/png',
+        'gif' => 'image/gif',
+        'webp' => 'image/webp',
+        'bmp' => 'image/bmp',
+        'svg' => 'image/svg+xml',
+        'ico' => 'image/x-icon',
+        'tiff' => 'image/tiff',
+        'tif' => 'image/tiff'
+    ];
+    
+    // Get the file extension (convert to lowercase)
+    $ext = strtolower(pathinfo($photoFile, PATHINFO_EXTENSION));
+    
+    // Check if extension is supported
+    if (!isset($supportedFormats[$ext])) {
+        error_log('Unsupported file format: ' . $ext);
+        return null;
+    }
+    
+    $fullPath = $basePath . $photoFile;
+    
+    // Check if file exists
+    if (!file_exists($fullPath)) {
+        error_log('Photo file not found: ' . $fullPath);
+        return null;
+    }
+    
+    // Check if file is readable
+    if (!is_readable($fullPath)) {
+        error_log('Photo file not readable: ' . $fullPath);
+        return null;
+    }
+    
+    // Get file size (should be > 0)
+    $fileSize = filesize($fullPath);
+    if ($fileSize === 0) {
+        error_log('Photo file is empty: ' . $fullPath);
+        return null;
+    }
+    
+    // Check if it's a valid image using getimagesize
+    $imageInfo = @getimagesize($fullPath);
+    if ($imageInfo === false) {
+        error_log('Invalid image file: ' . $fullPath);
+        return null;
+    }
+    
+    // Additional check for JFIF files (sometimes getimagesize may pass but file is corrupted)
+    // We can check the first few bytes for JFIF signature
+    $handle = fopen($fullPath, 'rb');
+    if ($handle) {
+        $bytes = fread($handle, 64);
+        fclose($handle);
+        
+        // Check for JFIF signature in the file
+        // JFIF files typically contain 'JFIF' in the header
+        if (stripos($bytes, 'JFIF') !== false || stripos($bytes, 'EXIF') !== false) {
+            // This is a valid JFIF/JPEG file
+            return $fullPath;
+        }
+        
+        // Also check for standard JPEG SOI marker (FF D8)
+        if (strpos($bytes, "\xFF\xD8") === 0) {
+            return $fullPath;
+        }
+        
+        // For non-JPEG formats, allow other formats to pass through
+        // getimagesize already validated them
+        return $fullPath;
+    }
+    
+    return $fullPath;
+}
 
-// Get logo
+// Get logo (optional)
 $logoPath = '../assets/uploads/logos/';
 $logoFile = null;
 if (is_dir($logoPath)) {
@@ -64,6 +175,10 @@ if (is_dir($logoPath)) {
         }
     }
 }
+
+// Get the photo path
+$photoFile = $content['photo'] ?? '';
+$photoPath = getValidImagePath($photoFile);
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -75,11 +190,95 @@ if (is_dir($logoPath)) {
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <link href="../assets/css/style.css" rel="stylesheet">
+    <style>
+        .verification-card {
+            background: white;
+            border-radius: 24px;
+            padding: 3rem 2rem;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.08);
+            max-width: 720px;
+            margin: 2rem auto;
+        }
+        .verification-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            background: #059669;
+            color: white;
+            padding: 0.5rem 1.5rem;
+            border-radius: 50px;
+            font-weight: 600;
+            font-size: 0.9rem;
+            margin-bottom: 1.5rem;
+        }
+        .profile-image {
+            width: 150px;
+            height: 150px;
+            object-fit: cover;
+            border-radius: 50%;
+            border: 4px solid #8B0000;
+            box-shadow: 0 4px 20px rgba(139, 0, 0, 0.2);
+            margin: 0 auto 1.5rem;
+        }
+        .social-link {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 44px;
+            height: 44px;
+            border-radius: 50%;
+            background: #f1f3f5;
+            color: #333;
+            transition: all 0.3s;
+            text-decoration: none;
+        }
+        .social-link:hover {
+            background: #8B0000;
+            color: white;
+            transform: translateY(-2px);
+        }
+        .fade-in {
+            animation: fadeIn 0.5s ease-out;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .profile-image-container {
+            position: relative;
+            display: inline-block;
+        }
+        .profile-image-container img {
+            width: 150px;
+            height: 150px;
+            object-fit: cover;
+            border-radius: 50%;
+            border: 4px solid #8B0000;
+            box-shadow: 0 4px 20px rgba(139, 0, 0, 0.2);
+        }
+        .profile-image-container .fallback {
+            width: 150px;
+            height: 150px;
+            border-radius: 50%;
+            background: #e9ecef;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto;
+            border: 4px solid #8B0000;
+        }
+        .profile-image-container .fallback i {
+            font-size: 4rem;
+            color: #6c757d;
+        }
+    </style>
 </head>
 <body class="bg-light">
     <div class="container py-4">
-        <?php if ($showVerification): ?>
+        <?php if ($isValid && $qrData): ?>
+            <!-- Verified Card -->
             <div class="verification-card fade-in">
+                <!-- University Logo -->
                 <div class="text-center mb-3">
                     <?php if ($logoFile && file_exists('../assets/uploads/logos/' . $logoFile)): ?>
                         <img src="../assets/uploads/logos/<?php echo htmlspecialchars($logoFile); ?>" 
@@ -89,6 +288,7 @@ if (is_dir($logoPath)) {
                     <?php endif; ?>
                 </div>
                 
+                <!-- Verification Badge -->
                 <div class="text-center">
                     <div class="verification-badge">
                         <i class="bi bi-check-circle-fill"></i>
@@ -96,67 +296,79 @@ if (is_dir($logoPath)) {
                     </div>
                 </div>
                 
+                <!-- Profile Photo -->
                 <div class="text-center">
-                    <?php if ($profile['photo'] && file_exists('../assets/uploads/profiles/' . $profile['photo'])): ?>
-                        <img src="../assets/uploads/profiles/<?php echo htmlspecialchars($profile['photo']); ?>" 
-                             alt="Profile Photo" class="profile-image">
-                    <?php else: ?>
-                        <div class="profile-image bg-secondary d-flex align-items-center justify-content-center text-white" 
-                             style="width: 180px; height: 180px; border-radius: 50%; margin: 0 auto 1.5rem;">
-                            <i class="bi bi-person-fill" style="font-size: 5rem;"></i>
-                        </div>
-                    <?php endif; ?>
+                    <div class="profile-image-container">
+                        <?php if ($photoPath && file_exists($photoPath)): ?>
+                            <img src="<?php echo htmlspecialchars($photoPath); ?>" 
+                                 alt="Profile Photo" 
+                                 class="profile-image"
+                                 onerror="this.style.display='none'; this.parentElement.querySelector('.fallback').style.display='flex';">
+                            <div class="fallback" style="display: none;">
+                                <i class="bi bi-person-fill"></i>
+                            </div>
+                        <?php else: ?>
+                            <div class="profile-image bg-secondary d-flex align-items-center justify-content-center text-white" 
+                                 style="width: 150px; height: 150px; border-radius: 50%; margin: 0 auto 1.5rem;">
+                                <i class="bi bi-person-fill" style="font-size: 4rem;"></i>
+                            </div>
+                        <?php endif; ?>
+                    </div>
                 </div>
                 
+                <!-- Profile Information -->
                 <div class="text-center">
-                    <h2 class="mb-1"><?php echo htmlspecialchars($profile['full_name'] ?? 'Vice Chancellor'); ?></h2>
-                    <h5 class="text-primary mb-1"><?php echo htmlspecialchars($profile['title'] ?? 'Office of the Vice Chancellor'); ?></h5>
-                    <p class="text-muted mb-3"><?php echo htmlspecialchars($profile['office'] ?? 'Muni University'); ?></p>
+                    <h2 class="mb-1"><?php echo htmlspecialchars($content['full_name'] ?? 'Unknown User'); ?></h2>
+                    <h5 class="text-primary mb-1"><?php echo htmlspecialchars($content['title_position'] ?? 'Unknown Title'); ?></h5>
+                    <p class="text-muted mb-3"><?php echo htmlspecialchars($content['office'] ?? 'Unknown Office'); ?></p>
                     
-                    <?php if (!empty($profile['biography'])): ?>
-                        <p class="mb-4" style="font-size: 1.05rem; line-height: 1.7;"><?php echo nl2br(htmlspecialchars($profile['biography'])); ?></p>
+                    <?php if (!empty($content['biography'])): ?>
+                        <p class="mb-4" style="font-size: 1.05rem; line-height: 1.7;"><?php echo nl2br(htmlspecialchars($content['biography'])); ?></p>
                     <?php endif; ?>
                 </div>
                 
+                <!-- Quick Actions -->
                 <div class="d-flex flex-wrap justify-content-center gap-3 mb-4">
-                    <?php if (!empty($profile['email'])): ?>
-                        <a href="mailto:<?php echo htmlspecialchars($profile['email']); ?>" class="btn btn-primary">
+                    <?php if (!empty($content['email'])): ?>
+                        <a href="mailto:<?php echo htmlspecialchars($content['email']); ?>" class="btn btn-primary">
                             <i class="bi bi-envelope"></i> Email
                         </a>
                     <?php endif; ?>
-                    <?php if (!empty($profile['phone'])): ?>
-                        <a href="tel:<?php echo htmlspecialchars($profile['phone']); ?>" class="btn btn-outline-primary">
+                    <?php if (!empty($content['phone'])): ?>
+                        <a href="tel:<?php echo htmlspecialchars($content['phone']); ?>" class="btn btn-outline-primary">
                             <i class="bi bi-telephone"></i> Call
                         </a>
                     <?php endif; ?>
-                    <?php if (!empty($profile['website'])): ?>
-                        <a href="<?php echo htmlspecialchars($profile['website']); ?>" target="_blank" class="btn btn-outline-secondary">
+                    <?php if (!empty($content['website'])): ?>
+                        <a href="<?php echo htmlspecialchars($content['website']); ?>" target="_blank" class="btn btn-outline-secondary">
                             <i class="bi bi-globe"></i> Website
                         </a>
                     <?php endif; ?>
                 </div>
                 
-                <?php if (!empty($profile['linkedin']) || !empty($profile['facebook']) || !empty($profile['twitter'])): ?>
+                <!-- Social Links -->
+                <?php if (!empty($content['linkedin']) || !empty($content['facebook']) || !empty($content['twitter'])): ?>
                     <hr>
                     <div class="d-flex justify-content-center gap-3 mt-3">
-                        <?php if (!empty($profile['linkedin'])): ?>
-                            <a href="<?php echo htmlspecialchars($profile['linkedin']); ?>" target="_blank" class="social-link" title="LinkedIn">
+                        <?php if (!empty($content['linkedin'])): ?>
+                            <a href="<?php echo htmlspecialchars($content['linkedin']); ?>" target="_blank" class="social-link" title="LinkedIn">
                                 <i class="bi bi-linkedin"></i>
                             </a>
                         <?php endif; ?>
-                        <?php if (!empty($profile['facebook'])): ?>
-                            <a href="<?php echo htmlspecialchars($profile['facebook']); ?>" target="_blank" class="social-link" title="Facebook">
+                        <?php if (!empty($content['facebook'])): ?>
+                            <a href="<?php echo htmlspecialchars($content['facebook']); ?>" target="_blank" class="social-link" title="Facebook">
                                 <i class="bi bi-facebook"></i>
                             </a>
                         <?php endif; ?>
-                        <?php if (!empty($profile['twitter'])): ?>
-                            <a href="<?php echo htmlspecialchars($profile['twitter']); ?>" target="_blank" class="social-link" title="Twitter / X">
+                        <?php if (!empty($content['twitter'])): ?>
+                            <a href="<?php echo htmlspecialchars($content['twitter']); ?>" target="_blank" class="social-link" title="Twitter / X">
                                 <i class="bi bi-twitter-x"></i>
                             </a>
                         <?php endif; ?>
                     </div>
                 <?php endif; ?>
                 
+                <!-- Footer Info -->
                 <hr>
                 <div class="text-center text-muted small">
                     <p class="mb-0">This is an official verification from</p>
@@ -171,9 +383,14 @@ if (is_dir($logoPath)) {
                         <span class="mx-2">•</span>
                         <i class="bi bi-qr-code"></i> Scan ID: <?php echo htmlspecialchars(substr($qrData['token'] ?? '', 0, 12)); ?>
                     </p>
+                    <p class="mb-0 mt-1">
+                        <i class="bi bi-eye"></i> This QR code has been scanned <strong><?php echo number_format($scanCount); ?></strong> time<?php echo $scanCount != 1 ? 's' : ''; ?>
+                    </p>
                 </div>
             </div>
+            
         <?php elseif ($error): ?>
+            <!-- Error Card -->
             <div class="verification-card fade-in text-center">
                 <div class="mb-4">
                     <div class="bg-danger bg-opacity-10 rounded-circle d-inline-flex p-4">
@@ -186,7 +403,9 @@ if (is_dir($logoPath)) {
                     <i class="bi bi-building"></i> Visit Muni University
                 </a>
             </div>
+            
         <?php else: ?>
+            <!-- Default Card -->
             <div class="verification-card fade-in text-center">
                 <div class="mb-4">
                     <div class="bg-secondary bg-opacity-10 rounded-circle d-inline-flex p-4">
@@ -199,8 +418,10 @@ if (is_dir($logoPath)) {
                     <i class="bi bi-building"></i> Visit University Website
                 </a>
             </div>
+            
         <?php endif; ?>
         
+        <!-- Footer -->
         <div class="text-center py-4 mt-4 border-top">
             <p class="text-muted small mb-0">
                 &copy; <?php echo date('Y'); ?> <a href="https://www.muni.ac.ug" class="text-decoration-none text-primary" target="_blank">Muni University</a>. 
