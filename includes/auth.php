@@ -42,7 +42,7 @@ function getCurrentAdmin() {
 // Login function
 function login($username, $password, $pdo) {
     try {
-        $stmt = $pdo->prepare("SELECT * FROM admins WHERE (username = ? OR email = ?) AND is_active = 1");
+        $stmt = $pdo->prepare("SELECT * FROM admins WHERE username = ? OR email = ?");
         $stmt->execute([$username, $username]);
         $admin = $stmt->fetch();
         
@@ -52,10 +52,6 @@ function login($username, $password, $pdo) {
             $_SESSION['admin_name'] = $admin['name'];
             $_SESSION['admin_email'] = $admin['email'];
             $_SESSION['login_time'] = time();
-            
-            // Update last login
-            $stmt = $pdo->prepare("UPDATE admins SET last_login = NOW() WHERE id = ?");
-            $stmt->execute([$admin['id']]);
             
             return true;
         }

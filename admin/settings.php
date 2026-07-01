@@ -7,7 +7,7 @@ $message = '';
 $error = '';
 $admin = getCurrentAdmin();
 
-// Handle Change Username
+// Handle form submissions
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
     
@@ -38,9 +38,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     if ($stmt->fetch()) {
                         $error = 'Username already taken. Please choose another.';
                     } else {
+                        // Update username
                         $stmt = $pdo->prepare("UPDATE admins SET username = ? WHERE id = ?");
                         $stmt->execute([$new_username, $admin['id']]);
+                        
+                        // Update session
                         $_SESSION['admin_username'] = $new_username;
+                        
                         $message = 'Username changed successfully!';
                         $admin = getCurrentAdmin();
                     }
@@ -67,15 +71,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $error = 'Password must be at least 6 characters long.';
         } else {
             try {
+                // Verify current password
                 $stmt = $pdo->prepare("SELECT password FROM admins WHERE id = ?");
                 $stmt->execute([$admin['id']]);
                 $user = $stmt->fetch();
                 
                 if ($user && password_verify($current_password, $user['password'])) {
+                    // Update password
                     $new_hash = password_hash($new_password, PASSWORD_DEFAULT);
                     $stmt = $pdo->prepare("UPDATE admins SET password = ? WHERE id = ?");
                     $stmt->execute([$new_hash, $admin['id']]);
-                    $message = 'Password changed successfully!';
+                    $message = 'Password changed successfully! Please login again with your new password.';
                 } else {
                     $error = 'Current password is incorrect.';
                 }
@@ -123,7 +129,7 @@ require_once '../includes/header.php';
                         <div class="mb-3">
                             <label class="form-label">Current Username</label>
                             <input type="text" class="form-control" value="<?php echo htmlspecialchars($admin['username'] ?? ''); ?>" disabled>
-                            <small class="text-muted">Current username</small>
+                            <small class="text-muted">Your current username</small>
                         </div>
                         <div class="mb-3">
                             <label class="form-label">New Username</label>
@@ -132,7 +138,7 @@ require_once '../includes/header.php';
                             <small class="text-muted">Minimum 3 characters, letters, numbers, and underscores only</small>
                         </div>
                         <div class="mb-3">
-                            <label class="form-label">Confirm with Password</label>
+                            <label class="form-label">Confirm with Current Password</label>
                             <input type="password" class="form-control" name="password_confirm" 
                                    placeholder="Enter your current password" required>
                         </div>
@@ -156,16 +162,19 @@ require_once '../includes/header.php';
                         
                         <div class="mb-3">
                             <label class="form-label">Current Password</label>
-                            <input type="password" class="form-control" name="current_password" required>
+                            <input type="password" class="form-control" name="current_password" 
+                                   placeholder="Enter current password" required>
                         </div>
                         <div class="mb-3">
                             <label class="form-label">New Password</label>
-                            <input type="password" class="form-control" name="new_password" required minlength="6">
+                            <input type="password" class="form-control" name="new_password" 
+                                   placeholder="Enter new password" required minlength="6">
                             <small class="text-muted">Minimum 6 characters</small>
                         </div>
                         <div class="mb-3">
                             <label class="form-label">Confirm New Password</label>
-                            <input type="password" class="form-control" name="confirm_password" required>
+                            <input type="password" class="form-control" name="confirm_password" 
+                                   placeholder="Confirm new password" required>
                         </div>
                         <button type="submit" class="btn btn-warning w-100">
                             <i class="bi bi-arrow-repeat"></i> Change Password

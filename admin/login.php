@@ -2,9 +2,20 @@
 session_start();
 
 // Database connection
-require_once '../config/database.php';
+$host = 'localhost';
+$dbname = 'muni_vc_qr';
+$user = 'root';
+$pass = '';
+
+try {
+    $pdo = new PDO("mysql:host=$host;dbname=$dbname", $user, $pass);
+    $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+} catch (PDOException $e) {
+    die("Database connection failed: " . $e->getMessage());
+}
 
 $error = '';
+$username = '';
 
 // Check if already logged in
 if (isset($_SESSION['admin_id'])) {
@@ -20,208 +31,182 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (empty($username) || empty($password)) {
         $error = 'Please enter both username and password.';
     } else {
-        $stmt = $pdo->prepare("SELECT * FROM admins WHERE username = ? OR email = ?");
-        $stmt->execute([$username, $username]);
-        $admin = $stmt->fetch();
-        
-        if ($admin && password_verify($password, $admin['password'])) {
-            $_SESSION['admin_id'] = $admin['id'];
-            $_SESSION['admin_username'] = $admin['username'];
-            $_SESSION['admin_name'] = $admin['name'];
-            $_SESSION['admin_email'] = $admin['email'];
+        try {
+            $stmt = $pdo->prepare("SELECT * FROM admins WHERE username = ? OR email = ?");
+            $stmt->execute([$username, $username]);
+            $admin = $stmt->fetch();
             
-            header('Location: dashboard.php');
-            exit;
-        } else {
-            $error = 'Invalid username or password. Please try again.';
+            if ($admin) {
+                if (password_verify($password, $admin['password'])) {
+                    $_SESSION['admin_id'] = $admin['id'];
+                    $_SESSION['admin_username'] = $admin['username'];
+                    $_SESSION['admin_name'] = $admin['name'];
+                    $_SESSION['admin_email'] = $admin['email'];
+                    
+                    header('Location: dashboard.php');
+                    exit;
+                } else {
+                    $error = 'Invalid password. Please try again.';
+                }
+            } else {
+                $error = 'Username not found. Please try again.';
+            }
+        } catch (PDOException $e) {
+            $error = 'System error. Please try again later.';
+        }
+    }
+}
+
+// Get logo if exists
+$logoPath = '../assets/uploads/logos/';
+$logoFile = null;
+if (is_dir($logoPath)) {
+    $files = scandir($logoPath);
+    foreach ($files as $file) {
+        if (in_array(strtolower(pathinfo($file, PATHINFO_EXTENSION)), ['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'ico'])) {
+            $logoFile = $file;
+            break;
         }
     }
 }
 ?>
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Admin Login - Muni University QR</title>
+    <title>Login - Muni QR Code System</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             background: linear-gradient(135deg, #8B0000 0%, #C41E24 50%, #A00000 100%);
-            min-height: 100vh;
             display: flex;
-            align-items: center;
             justify-content: center;
+            align-items: center;
+            min-height: 100vh;
             padding: 20px;
         }
-        .login-container { width: 100%; max-width: 420px; }
-        .login-card {
+        .login-box {
             background: white;
+            padding: 40px 35px;
             border-radius: 16px;
-            padding: 2.5rem;
             box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            width: 420px;
+            max-width: 100%;
         }
-        .login-header { text-align: center; margin-bottom: 2rem; }
-        .login-header .icon { font-size: 3rem; color: #8B0000; margin-bottom: 0.5rem; font-weight: 700; }
-        .login-header h1 { color: #8B0000; font-size: 1.8rem; font-weight: 700; }
-        .login-header p { color: #6c757d; font-size: 0.95rem; }
-        .form-group { margin-bottom: 1.25rem; }
-        .form-group label { display: block; margin-bottom: 0.5rem; font-weight: 600; color: #333; }
-        .input-group { position: relative; display: flex; align-items: center; }
-        .input-group .input-icon {
-            position: absolute;
-            left: 12px;
-            color: #999;
-            font-size: 1rem;
-            pointer-events: none;
+        .login-header {
+            text-align: center;
+            margin-bottom: 30px;
         }
-        .input-group input {
+        .login-header .logo {
+            max-height: 70px;
+            width: auto;
+            margin-bottom: 12px;
+        }
+        .login-header h2 {
+            color: #8B0000;
+            font-size: 22px;
+            font-weight: 700;
+            margin-bottom: 4px;
+            letter-spacing: 0.5px;
+        }
+        .login-header p {
+            color: #6c757d;
+            font-size: 14px;
+            font-weight: 400;
+        }
+        .form-group { margin-bottom: 20px; }
+        .form-group label {
+            display: block;
+            margin-bottom: 6px;
+            font-weight: 600;
+            color: #333;
+            font-size: 14px;
+        }
+        .form-group input {
             width: 100%;
-            padding: 12px 12px 12px 40px;
+            padding: 12px 14px;
             border: 2px solid #e0e0e0;
             border-radius: 8px;
-            font-size: 1rem;
+            font-size: 15px;
             transition: border-color 0.3s;
             background: #f8f9fa;
+            box-sizing: border-box;
         }
-        .input-group input:focus {
+        .form-group input:focus {
             outline: none;
             border-color: #8B0000;
             background: white;
             box-shadow: 0 0 0 3px rgba(139, 0, 0, 0.1);
         }
-        .input-group .toggle-password {
-            position: absolute;
-            right: 12px;
-            background: none;
-            border: none;
-            color: #999;
-            cursor: pointer;
-            font-size: 1rem;
-            padding: 5px;
-        }
-        .input-group .toggle-password:hover { color: #333; }
-        .btn-login {
+        .btn {
             width: 100%;
             padding: 14px;
             background: #8B0000;
             color: white;
             border: none;
             border-radius: 8px;
-            font-size: 1rem;
+            font-size: 16px;
             font-weight: 600;
             cursor: pointer;
             transition: background 0.3s;
         }
-        .btn-login:hover { background: #A00000; }
-        .error-message {
-            background: #f8d7da;
+        .btn:hover { background: #A00000; }
+        .btn:active { transform: scale(0.98); }
+        .error {
             color: #721c24;
-            padding: 12px;
+            margin-bottom: 15px;
+            padding: 12px 15px;
+            background: #f8d7da;
             border-radius: 8px;
-            margin-bottom: 1.25rem;
             border: 1px solid #f5c6cb;
-            display: flex;
-            align-items: center;
-            gap: 8px;
+            font-size: 14px;
         }
+        .error:empty { display: none; }
         .login-footer {
-            margin-top: 1.5rem;
-            padding-top: 1.5rem;
-            border-top: 1px solid #e0e0e0;
+            margin-top: 20px;
+            padding-top: 20px;
+            border-top: 1px solid #e9ecef;
             text-align: center;
+            font-size: 13px;
+            color: #6c757d;
         }
-        .login-footer .credentials {
-            background: #f8f9fa;
-            padding: 12px;
-            border-radius: 8px;
-            font-size: 0.85rem;
+        .login-footer a {
+            color: #8B0000;
+            text-decoration: none;
         }
-        .login-footer .credentials code {
-            background: #e9ecef;
-            padding: 2px 8px;
-            border-radius: 4px;
-            font-weight: 600;
-        }
-        .login-footer .credentials .row {
-            display: flex;
-            justify-content: center;
-            gap: 20px;
-            flex-wrap: wrap;
-            margin-top: 5px;
-        }
-        .text-muted { color: #6c757d; }
-        .fw-bold { font-weight: 600; }
-        .mt-2 { margin-top: 0.5rem; }
-        .small { font-size: 0.85rem; }
+        .login-footer a:hover { text-decoration: underline; }
     </style>
 </head>
 <body>
-    <div class="login-container">
-        <div class="login-card">
-            <div class="login-header">
-                <div class="icon">◆</div>
-                <h1>Muni VC QR</h1>
-                <p>Administrative Login</p>
-            </div>
-            
-            <?php if ($error): ?>
-                <div class="error-message">
-                    <span>!</span>
-                    <span><?php echo htmlspecialchars($error); ?></span>
-                </div>
+    <div class="login-box">
+        <div class="login-header">
+            <?php if ($logoFile && file_exists('../assets/uploads/logos/' . $logoFile)): ?>
+                <img src="../assets/uploads/logos/<?php echo htmlspecialchars($logoFile); ?>" 
+                     alt="Muni University Logo" class="logo">
             <?php endif; ?>
-            
-            <form method="POST" action="" autocomplete="off">
-                <div class="form-group">
-                    <label for="username">Username or Email</label>
-                    <div class="input-group">
-                        <span class="input-icon">U</span>
-                        <input type="text" id="username" name="username" 
-                               placeholder="Enter your username or email" 
-                               value="" required autofocus>
-                    </div>
-                </div>
-                
-                <div class="form-group">
-                    <label for="password">Password</label>
-                    <div class="input-group">
-                        <span class="input-icon">P</span>
-                        <input type="password" id="password" name="password" 
-                               placeholder="Enter your password" 
-                               value="" required>
-                        <button type="button" class="toggle-password" id="togglePassword">
-                            Show
-                        </button>
-                    </div>
-                </div>
-                
-                <button type="submit" class="btn-login">Login</button>
-            </form>
-            
-            <div class="login-footer">
-                <div class="credentials">
-                    <div class="fw-bold mb-2">Default Login Credentials</div>
-                    <div class="row">
-                        <span>Username: <code>admin</code></span>
-                        <span>Password: <code>admin123</code></span>
-                    </div>
-                </div>
+            <h2>Muni QR Code System</h2>
+            <p>Administrative Login</p>
+        </div>
+        
+        <?php if ($error): ?>
+            <div class="error"><?php echo htmlspecialchars($error); ?></div>
+        <?php endif; ?>
+        
+        <form method="POST">
+            <div class="form-group">
+                <label>Username</label>
+                <input type="text" name="username" value="<?php echo htmlspecialchars($username); ?>" required autofocus>
             </div>
+            <div class="form-group">
+                <label>Password</label>
+                <input type="password" name="password" required>
+            </div>
+            <button type="submit" class="btn">Login</button>
+        </form>
+        
+        <div class="login-footer">
+            &copy; <?php echo date('Y'); ?> Muni University. All Rights Reserved.
         </div>
     </div>
-
-    <script>
-        document.addEventListener('DOMContentLoaded', function() {
-            const togglePassword = document.getElementById('togglePassword');
-            const passwordInput = document.getElementById('password');
-            togglePassword.addEventListener('click', function() {
-                const type = passwordInput.getAttribute('type') === 'password' ? 'text' : 'password';
-                passwordInput.setAttribute('type', type);
-                this.textContent = type === 'password' ? 'Show' : 'Hide';
-            });
-        });
-    </script>
 </body>
 </html>
