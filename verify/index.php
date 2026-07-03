@@ -206,6 +206,16 @@ $photoPath = getValidImagePath($photoFile);
         .social-link i {
             font-size: 1.2rem;
         }
+        /* Twitter bird SVG styling */
+        .social-link .twitter-svg {
+            width: 20px;
+            height: 20px;
+            fill: #333;
+            transition: fill 0.3s;
+        }
+        .social-link:hover .twitter-svg {
+            fill: white;
+        }
         .fade-in {
             animation: fadeIn 0.5s ease-out;
         }
@@ -239,17 +249,6 @@ $photoPath = getValidImagePath($photoFile);
         .profile-image-container .fallback i {
             font-size: 4rem;
             color: #6c757d;
-        }
-        /* Fix for Twitter/X icon */
-        .social-link .bi-twitter-x::before {
-            content: "🐦";
-            font-style: normal;
-        }
-        /* Or use this fallback if emoji doesn't work */
-        .social-link .bi-twitter-x-fallback {
-            font-family: Arial, sans-serif;
-            font-weight: bold;
-            font-size: 1.1rem;
         }
     </style>
 </head>
@@ -326,7 +325,7 @@ $photoPath = getValidImagePath($photoFile);
                     <?php endif; ?>
                 </div>
                 
-                <!-- Social Links - FIXED Twitter/X Icon -->
+                <!-- Social Links - WITH TWITTER BIRD SVG -->
                 <?php if (!empty($content['linkedin']) || !empty($content['facebook']) || !empty($content['twitter'])): ?>
                     <hr>
                     <div class="d-flex justify-content-center gap-3 mt-3">
@@ -342,8 +341,10 @@ $photoPath = getValidImagePath($photoFile);
                         <?php endif; ?>
                         <?php if (!empty($content['twitter'])): ?>
                             <a href="<?php echo htmlspecialchars($content['twitter']); ?>" target="_blank" class="social-link" title="Twitter / X">
-                                <!-- Using "X" as fallback since bi-twitter-x might not work -->
-                                <span style="font-weight: 700; font-size: 1.1rem;">X</span>
+                                <!-- Twitter Bird SVG Logo -->
+                                <svg class="twitter-svg" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                    <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
+                                </svg>
                             </a>
                         <?php endif; ?>
                     </div>
