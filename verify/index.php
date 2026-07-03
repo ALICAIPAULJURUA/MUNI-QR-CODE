@@ -77,18 +77,14 @@ function getValidImagePath($photoFile) {
         return null;
     }
     
-    // Base path
     $basePath = '../assets/uploads/profiles/';
     
-    // Define allowed image extensions with their MIME types
-    // JFIF is essentially JPEG with .jfif extension
     $supportedFormats = [
-        // Standard formats
         'jpg' => 'image/jpeg',
         'jpeg' => 'image/jpeg',
-        'jfif' => 'image/jpeg',      // JFIF format - same as JPEG
-        'jpe' => 'image/jpeg',       // JPEG variant
-        'jif' => 'image/jpeg',       // JPEG variant
+        'jfif' => 'image/jpeg',
+        'jpe' => 'image/jpeg',
+        'jif' => 'image/jpeg',
         'png' => 'image/png',
         'gif' => 'image/gif',
         'webp' => 'image/webp',
@@ -99,10 +95,8 @@ function getValidImagePath($photoFile) {
         'tif' => 'image/tiff'
     ];
     
-    // Get the file extension (convert to lowercase)
     $ext = strtolower(pathinfo($photoFile, PATHINFO_EXTENSION));
     
-    // Check if extension is supported
     if (!isset($supportedFormats[$ext])) {
         error_log('Unsupported file format: ' . $ext);
         return null;
@@ -110,54 +104,26 @@ function getValidImagePath($photoFile) {
     
     $fullPath = $basePath . $photoFile;
     
-    // Check if file exists
     if (!file_exists($fullPath)) {
         error_log('Photo file not found: ' . $fullPath);
         return null;
     }
     
-    // Check if file is readable
     if (!is_readable($fullPath)) {
         error_log('Photo file not readable: ' . $fullPath);
         return null;
     }
     
-    // Get file size (should be > 0)
     $fileSize = filesize($fullPath);
     if ($fileSize === 0) {
         error_log('Photo file is empty: ' . $fullPath);
         return null;
     }
     
-    // Check if it's a valid image using getimagesize
     $imageInfo = @getimagesize($fullPath);
     if ($imageInfo === false) {
         error_log('Invalid image file: ' . $fullPath);
         return null;
-    }
-    
-    // Additional check for JFIF files (sometimes getimagesize may pass but file is corrupted)
-    // We can check the first few bytes for JFIF signature
-    $handle = fopen($fullPath, 'rb');
-    if ($handle) {
-        $bytes = fread($handle, 64);
-        fclose($handle);
-        
-        // Check for JFIF signature in the file
-        // JFIF files typically contain 'JFIF' in the header
-        if (stripos($bytes, 'JFIF') !== false || stripos($bytes, 'EXIF') !== false) {
-            // This is a valid JFIF/JPEG file
-            return $fullPath;
-        }
-        
-        // Also check for standard JPEG SOI marker (FF D8)
-        if (strpos($bytes, "\xFF\xD8") === 0) {
-            return $fullPath;
-        }
-        
-        // For non-JPEG formats, allow other formats to pass through
-        // getimagesize already validated them
-        return $fullPath;
     }
     
     return $fullPath;
@@ -237,6 +203,9 @@ $photoPath = getValidImagePath($photoFile);
             color: white;
             transform: translateY(-2px);
         }
+        .social-link i {
+            font-size: 1.2rem;
+        }
         .fade-in {
             animation: fadeIn 0.5s ease-out;
         }
@@ -270,6 +239,17 @@ $photoPath = getValidImagePath($photoFile);
         .profile-image-container .fallback i {
             font-size: 4rem;
             color: #6c757d;
+        }
+        /* Fix for Twitter/X icon */
+        .social-link .bi-twitter-x::before {
+            content: "🐦";
+            font-style: normal;
+        }
+        /* Or use this fallback if emoji doesn't work */
+        .social-link .bi-twitter-x-fallback {
+            font-family: Arial, sans-serif;
+            font-weight: bold;
+            font-size: 1.1rem;
         }
     </style>
 </head>
@@ -346,7 +326,7 @@ $photoPath = getValidImagePath($photoFile);
                     <?php endif; ?>
                 </div>
                 
-                <!-- Social Links -->
+                <!-- Social Links - FIXED Twitter/X Icon -->
                 <?php if (!empty($content['linkedin']) || !empty($content['facebook']) || !empty($content['twitter'])): ?>
                     <hr>
                     <div class="d-flex justify-content-center gap-3 mt-3">
@@ -362,7 +342,8 @@ $photoPath = getValidImagePath($photoFile);
                         <?php endif; ?>
                         <?php if (!empty($content['twitter'])): ?>
                             <a href="<?php echo htmlspecialchars($content['twitter']); ?>" target="_blank" class="social-link" title="Twitter / X">
-                                <i class="bi bi-twitter-x"></i>
+                                <!-- Using "X" as fallback since bi-twitter-x might not work -->
+                                <span style="font-weight: 700; font-size: 1.1rem;">X</span>
                             </a>
                         <?php endif; ?>
                     </div>
