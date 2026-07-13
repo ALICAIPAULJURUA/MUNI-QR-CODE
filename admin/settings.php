@@ -6,6 +6,7 @@ requireAuth();
 $message = '';
 $error = '';
 $admin = getCurrentAdmin();
+$isSuperAdmin = isSuperAdmin();
 
 // Handle form submissions
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -32,8 +33,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $user = $stmt->fetch();
                 
                 if ($user && password_verify($password_confirm, $user['password'])) {
-                    // Check if username already exists
-                    $stmt = $pdo->prepare("SELECT id FROM admins WHERE username = ? AND id != ?");
+                    // Check if username already exists (excluding current user)
+                    $stmt = $pdo->prepare("SELECT id FROM admins WHERE username = ? AND id != ? AND deleted_at IS NULL");
                     $stmt->execute([$new_username, $admin['id']]);
                     if ($stmt->fetch()) {
                         $error = 'Username already taken. Please choose another.';
@@ -42,10 +43,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $stmt = $pdo->prepare("UPDATE admins SET username = ? WHERE id = ?");
                         $stmt->execute([$new_username, $admin['id']]);
                         
-                        // Update session
+                        // Update session with new username
                         $_SESSION['admin_username'] = $new_username;
                         
                         $message = 'Username changed successfully!';
+                        
+                        // Refresh admin data
                         $admin = getCurrentAdmin();
                     }
                 } else {
@@ -53,6 +56,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
             } catch (PDOException $e) {
                 $error = 'Failed to change username. Please try again.';
+                error_log('Username change error: ' . $e->getMessage());
             }
         }
     }
@@ -77,16 +81,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $user = $stmt->fetch();
                 
                 if ($user && password_verify($current_password, $user['password'])) {
-                    // Update password
+                    // Hash and update new password
                     $new_hash = password_hash($new_password, PASSWORD_DEFAULT);
                     $stmt = $pdo->prepare("UPDATE admins SET password = ? WHERE id = ?");
                     $stmt->execute([$new_hash, $admin['id']]);
+                    
                     $message = 'Password changed successfully! Please login again with your new password.';
+                    
+                    // Optionally log out the user to force re-login
+                    // session_destroy();
+                    // header('Location: login.php');
+                    // exit;
                 } else {
                     $error = 'Current password is incorrect.';
                 }
             } catch (PDOException $e) {
                 $error = 'Failed to change password. Please try again.';
+                error_log('Password change error: ' . $e->getMessage());
             }
         }
     }
@@ -98,7 +109,14 @@ require_once '../includes/header.php';
 <div class="container mt-4">
     <div class="d-flex justify-content-between align-items-center mb-4">
         <h2><i class="bi bi-gear text-primary"></i> Settings</h2>
-        <span class="badge bg-primary">System Configuration</span>
+        <div>
+            <?php if ($isSuperAdmin): ?>
+                <span class="badge bg-danger">Super Admin</span>
+            <?php else: ?>
+                <span class="badge bg-secondary">Admin</span>
+            <?php endif; ?>
+            <span class="badge bg-primary"><?php echo htmlspecialchars($admin['username']); ?></span>
+        </div>
     </div>
     
     <?php if ($message): ?>
@@ -180,6 +198,54 @@ require_once '../includes/header.php';
                             <i class="bi bi-arrow-repeat"></i> Change Password
                         </button>
                     </form>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- User Info & Role (Admin Only) -->
+    <div class="row mt-4">
+        <div class="col-md-12">
+            <div class="card border-0 shadow-sm">
+                <div class="card-header bg-light">
+                    <h6 class="mb-0"><i class="bi bi-info-circle text-primary"></i> Account Information</h6>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-3">
+                            <strong>User ID:</strong> <?php echo $admin['id']; ?>
+                        </div>
+                        <div class="col-md-3">
+                            <strong>Role:</strong> 
+                            <?php if ($isSuperAdmin): ?>
+                                <span class="badge bg-danger">Super Admin</span>
+                            <?php else: ?>
+                                <span class="badge bg-secondary">Admin</span>
+                            <?php endif; ?>
+                        </div>
+                        <div class="col-md-3">
+                            <strong>Email:</strong> <?php echo htmlspecialchars($admin['email'] ?? 'N/A'); ?>
+                        </div>
+                        <div class="col-md-3">
+                            <strong>Status:</strong> 
+                            <span class="badge bg-success">Active</span>
+                        </div>
+                    </div>
+                    <?php if ($isSuperAdmin): ?>
+                        <div class="mt-3">
+                            <small class="text-muted">
+                                <i class="bi bi-shield-lock-fill text-danger"></i> 
+                                You have Super Admin privileges. You can manage all users and system settings.
+                            </small>
+                        </div>
+                    <?php else: ?>
+                        <div class="mt-3">
+                            <small class="text-muted">
+                                <i class="bi bi-info-circle"></i> 
+                                You have Admin privileges. You can manage QR codes and your profile.
+                            </small>
+                        </div>
+                    <?php endif; ?>
                 </div>
             </div>
         </div>

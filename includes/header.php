@@ -8,20 +8,7 @@ if (session_status() === PHP_SESSION_NONE) {
 $isLoggedIn = isset($_SESSION['admin_id']) && isset($_SESSION['admin_username']);
 $currentPage = basename($_SERVER['PHP_SELF']);
 $adminName = $_SESSION['admin_name'] ?? 'Admin';
-
-// Get logo for site icon
-$logoPath = __DIR__ . '/../assets/uploads/logos/';
-$siteIcon = 'https://www.muni.ac.ug/favicon.ico'; // Default fallback
-
-if (is_dir($logoPath)) {
-    $files = scandir($logoPath);
-    foreach ($files as $file) {
-        if (in_array(strtolower(pathinfo($file, PATHINFO_EXTENSION)), ['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'ico'])) {
-            $siteIcon = '../assets/uploads/logos/' . $file;
-            break;
-        }
-    }
-}
+$isSuperAdmin = isset($_SESSION['admin_role']) && $_SESSION['admin_role'] === 'super_admin';
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -29,10 +16,7 @@ if (is_dir($logoPath)) {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Muni University QR Verification System</title>
-    <!-- Site Icon (Favicon) - Dynamic from uploaded logo -->
-    <link rel="icon" href="<?php echo $siteIcon; ?>" type="image/x-icon">
-    <link rel="shortcut icon" href="<?php echo $siteIcon; ?>" type="image/x-icon">
-    
+    <link rel="icon" href="https://www.muni.ac.ug/favicon.ico">
     <!-- Bootstrap 5 CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <!-- Bootstrap Icons -->
@@ -78,7 +62,6 @@ if (is_dir($logoPath)) {
             height: 35px;
             width: auto;
             border-radius: 4px;
-            background-color: white;
         }
         .navbar-brand i {
             margin-right: 8px;
@@ -111,6 +94,20 @@ if (is_dir($logoPath)) {
         .main-content {
             min-height: calc(100vh - 70px);
             padding-bottom: 20px;
+        }
+        .role-badge {
+            font-size: 10px;
+            padding: 2px 8px;
+            border-radius: 10px;
+            margin-left: 5px;
+        }
+        .role-badge.super-admin {
+            background: #dc3545;
+            color: white;
+        }
+        .role-badge.admin {
+            background: #6c757d;
+            color: white;
         }
         @media (max-width: 768px) {
             .navbar .nav-link {
@@ -146,7 +143,7 @@ if (is_dir($logoPath)) {
                 <?php else: ?>
                     <i class="bi bi-shield-check"></i>
                 <?php endif; ?>
-                Muni University QR Code
+                Muni VC QR
             </a>
             <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
                 <span class="navbar-toggler-icon"></span>
@@ -168,6 +165,13 @@ if (is_dir($logoPath)) {
                             <i class="bi bi-list-ul"></i> Manage QR
                         </a>
                     </li>
+                    <?php if ($isSuperAdmin): ?>
+                    <li class="nav-item">
+                        <a class="nav-link <?php echo $currentPage === 'manage-users.php' ? 'active' : ''; ?>" href="manage-users.php">
+                            <i class="bi bi-people"></i> Manage Users
+                        </a>
+                    </li>
+                    <?php endif; ?>
                     <li class="nav-item">
                         <a class="nav-link <?php echo $currentPage === 'settings.php' ? 'active' : ''; ?>" href="settings.php">
                             <i class="bi bi-gear"></i> Settings
@@ -178,11 +182,20 @@ if (is_dir($logoPath)) {
                     <li class="nav-item dropdown">
                         <a class="nav-link dropdown-toggle" href="#" id="userDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
                             <i class="bi bi-person-circle"></i> <?php echo htmlspecialchars($adminName); ?>
+                            <?php if ($isSuperAdmin): ?>
+                                <span class="role-badge super-admin">Super Admin</span>
+                            <?php else: ?>
+                                <span class="role-badge admin">Admin</span>
+                            <?php endif; ?>
                         </a>
                         <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="userDropdown">
                             <li>
                                 <span class="dropdown-item-text">
                                     <i class="bi bi-person"></i> <?php echo htmlspecialchars($adminName); ?>
+                                    <br>
+                                    <small class="text-muted">
+                                        <?php echo $isSuperAdmin ? '🔑 Super Admin' : '👤 Admin'; ?>
+                                    </small>
                                 </span>
                             </li>
                             <li><hr class="dropdown-divider"></li>
@@ -191,6 +204,13 @@ if (is_dir($logoPath)) {
                                     <i class="bi bi-gear"></i> Settings
                                 </a>
                             </li>
+                            <?php if ($isSuperAdmin): ?>
+                            <li>
+                                <a class="dropdown-item" href="manage-users.php">
+                                    <i class="bi bi-people"></i> Manage Users
+                                </a>
+                            </li>
+                            <?php endif; ?>
                             <li>
                                 <a class="dropdown-item text-danger" href="logout.php">
                                     <i class="bi bi-box-arrow-right"></i> Logout

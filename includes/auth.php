@@ -33,16 +33,34 @@ function getCurrentAdmin() {
             'id' => $_SESSION['admin_id'],
             'username' => $_SESSION['admin_username'],
             'name' => $_SESSION['admin_name'],
-            'email' => $_SESSION['admin_email']
+            'email' => $_SESSION['admin_email'],
+            'role' => $_SESSION['admin_role'] ?? 'admin'
         ];
     }
     return null;
 }
 
+// Check if current user is super admin
+function isSuperAdmin() {
+    if (isAuthenticated()) {
+        return ($_SESSION['admin_role'] ?? 'admin') === 'super_admin';
+    }
+    return false;
+}
+
+// Require super admin role
+function requireSuperAdmin() {
+    requireAuth();
+    if (!isSuperAdmin()) {
+        header('Location: dashboard.php');
+        exit;
+    }
+}
+
 // Login function
 function login($username, $password, $pdo) {
     try {
-        $stmt = $pdo->prepare("SELECT * FROM admins WHERE username = ? OR email = ?");
+        $stmt = $pdo->prepare("SELECT * FROM admins WHERE (username = ? OR email = ?) AND is_active = 1 AND deleted_at IS NULL");
         $stmt->execute([$username, $username]);
         $admin = $stmt->fetch();
         
@@ -51,7 +69,12 @@ function login($username, $password, $pdo) {
             $_SESSION['admin_username'] = $admin['username'];
             $_SESSION['admin_name'] = $admin['name'];
             $_SESSION['admin_email'] = $admin['email'];
+            $_SESSION['admin_role'] = $admin['role'] ?? 'admin'; // <-- FIXED: Store role
             $_SESSION['login_time'] = time();
+            
+            // Update last login
+            $stmt = $pdo->prepare("UPDATE admins SET last_login = NOW() WHERE id = ?");
+            $stmt->execute([$admin['id']]);
             
             return true;
         }

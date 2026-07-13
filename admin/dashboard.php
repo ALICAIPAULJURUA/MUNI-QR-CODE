@@ -31,6 +31,10 @@ try {
     $stmt = $pdo->query("SELECT id, name, token, status, scan_count, created_at FROM qr_codes ORDER BY created_at DESC LIMIT 5");
     $recentQRCodes = $stmt->fetchAll();
     
+    // Get user info
+    $admin = getCurrentAdmin();
+    $isSuperAdmin = isSuperAdmin();
+    
 } catch (PDOException $e) {
     $totalQRCodes = 0;
     $activeQRCodes = 0;
@@ -38,108 +42,25 @@ try {
     $todayScans = 0;
     $lastScanDate = 'Error loading data';
     $recentQRCodes = [];
+    $isSuperAdmin = false;
 }
 
 require_once '../includes/header.php';
 ?>
 
-<style>
-.step-progress {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 10px 0 5px 0;
-    position: relative;
-}
-
-.step-item {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    position: relative;
-    z-index: 2;
-}
-
-.step-circle {
-    width: 44px;
-    height: 44px;
-    border-radius: 50%;
-    background: #e9ecef;
-    color: #fff;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-weight: 700;
-    font-size: 16px;
-    transition: all 0.3s ease;
-    border: 3px solid #dee2e6;
-}
-
-.step-circle.active {
-    background: #8B0000;
-    border-color: #8B0000;
-    box-shadow: 0 0 0 4px rgba(139, 0, 0, 0.15);
-}
-
-.step-circle.completed {
-    background: #28a745;
-    border-color: #28a745;
-}
-
-.step-circle .checkmark { display: none; }
-.step-circle.completed .checkmark { display: block; }
-.step-circle.completed .step-number { display: none; }
-
-.step-label {
-    margin-top: 6px;
-    font-size: 11px;
-    font-weight: 600;
-    color: #6c757d;
-    text-align: center;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-}
-
-.step-label.active { color: #8B0000; }
-.step-label.completed { color: #28a745; }
-
-.step-arrow {
-    flex: 1;
-    height: 3px;
-    background: #dee2e6;
-    position: relative;
-    margin: 0 3px;
-    z-index: 1;
-    min-width: 30px;
-}
-
-.step-arrow.active { background: #8B0000; }
-.step-arrow.completed { background: #28a745; }
-
-.step-arrow::after {
-    content: '';
-    position: absolute;
-    right: -6px;
-    top: -4px;
-    border-left: 8px solid #dee2e6;
-    border-top: 5px solid transparent;
-    border-bottom: 5px solid transparent;
-}
-
-.step-arrow.active::after { border-left-color: #8B0000; }
-.step-arrow.completed::after { border-left-color: #28a745; }
-
-@media (max-width: 768px) {
-    .step-circle { width: 36px; height: 36px; font-size: 13px; }
-    .step-label { font-size: 9px; }
-    .step-arrow { min-width: 15px; }
-}
-</style>
-
 <div class="container mt-4">
     <div class="d-flex justify-content-between align-items-center mb-4">
         <h2><i class="bi bi-speedometer2 text-primary"></i> Dashboard</h2>
-        <span class="badge bg-primary">Welcome, <?php echo htmlspecialchars($_SESSION['admin_name']); ?></span>
+        <div>
+            <span class="badge bg-primary me-2">
+                <i class="bi bi-person"></i> <?php echo htmlspecialchars($_SESSION['admin_name']); ?>
+            </span>
+            <?php if ($isSuperAdmin): ?>
+                <span class="badge bg-danger">Super Admin</span>
+            <?php else: ?>
+                <span class="badge bg-secondary">Admin</span>
+            <?php endif; ?>
+        </div>
     </div>
     
     <!-- Stats Cards -->
@@ -206,61 +127,68 @@ require_once '../includes/header.php';
         </div>
     </div>
     
-    <!-- Generate QR Button & Steps -->
-    <div class="card border-0 shadow-sm mb-4">
-        <div class="card-body text-center py-4">
-            <div class="mb-3">
-                <i class="bi bi-qr-code" style="font-size: 3.5rem; color: #8B0000;"></i>
-            </div>
-            <h4 class="mb-2">Generate New QR Code</h4>
-            <p class="text-muted mb-4">Create a new QR code for verification in 4 simple steps</p>
-            <a href="qr-create.php" class="btn btn-primary btn-lg px-5">
-                <i class="bi bi-plus-circle"></i> Generate New QR Code
-            </a>
-            
-            <!-- Step-by-step guide with circles and arrows -->
-            <div class="step-progress mt-4">
-                <div class="step-item">
-                    <div class="step-circle active">
-                        <span class="step-number">1</span>
-                        <span class="checkmark">✓</span>
-                    </div>
-                    <div class="step-label active">Content</div>
+    <!-- Quick Actions -->
+    <div class="row g-4">
+        <div class="col-md-<?php echo $isSuperAdmin ? '6' : '12'; ?>">
+            <div class="card border-0 shadow-sm">
+                <div class="card-header bg-white">
+                    <h5 class="mb-0"><i class="bi bi-lightning-fill text-warning"></i> Quick Actions</h5>
                 </div>
-                <div class="step-arrow active"></div>
-                <div class="step-item">
-                    <div class="step-circle">
-                        <span class="step-number">2</span>
-                        <span class="checkmark">✓</span>
+                <div class="card-body">
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <a href="qr-generate.php" class="btn btn-primary w-100 py-3 d-flex align-items-center justify-content-center">
+                                <i class="bi bi-qr-code me-2 fs-4"></i>
+                                <div>
+                                    <div><strong>Generate QR</strong></div>
+                                    <small class="text-muted">Create new QR code</small>
+                                </div>
+                            </a>
+                        </div>
+                        <div class="col-md-4">
+                            <a href="profile.php" class="btn btn-outline-primary w-100 py-3 d-flex align-items-center justify-content-center">
+                                <i class="bi bi-person me-2 fs-4"></i>
+                                <div>
+                                    <div><strong>Update Profile</strong></div>
+                                    <small class="text-muted">Edit your information</small>
+                                </div>
+                            </a>
+                        </div>
+                        <div class="col-md-4">
+                            <a href="qr-customize.php" class="btn btn-outline-success w-100 py-3 d-flex align-items-center justify-content-center">
+                                <i class="bi bi-palette me-2 fs-4"></i>
+                                <div>
+                                    <div><strong>Customize QR</strong></div>
+                                    <small class="text-muted">Download & customize</small>
+                                </div>
+                            </a>
+                        </div>
                     </div>
-                    <div class="step-label">Design</div>
-                </div>
-                <div class="step-arrow"></div>
-                <div class="step-item">
-                    <div class="step-circle">
-                        <span class="step-number">3</span>
-                        <span class="checkmark">✓</span>
-                    </div>
-                    <div class="step-label">Preview</div>
-                </div>
-                <div class="step-arrow"></div>
-                <div class="step-item">
-                    <div class="step-circle">
-                        <span class="step-number">4</span>
-                        <span class="checkmark">✓</span>
-                    </div>
-                    <div class="step-label">Create</div>
                 </div>
             </div>
-            
-            <p class="text-muted small mt-3">
-                <i class="bi bi-arrow-right"></i> Click "Generate New QR Code" to get started
-            </p>
         </div>
+        
+        <?php if ($isSuperAdmin): ?>
+        <div class="col-md-6">
+            <div class="card border-0 shadow-sm">
+                <div class="card-header bg-white">
+                    <h5 class="mb-0"><i class="bi bi-people text-primary"></i> User Management</h5>
+                </div>
+                <div class="card-body text-center py-4">
+                    <i class="bi bi-people-fill" style="font-size: 3rem; color: #8B0000;"></i>
+                    <h5 class="mt-3">Manage Users</h5>
+                    <p class="text-muted">Create and manage admin users</p>
+                    <a href="manage-users.php" class="btn btn-primary">
+                        <i class="bi bi-arrow-right"></i> Go to User Management
+                    </a>
+                </div>
+            </div>
+        </div>
+        <?php endif; ?>
     </div>
     
     <!-- Recent QR Codes -->
-    <div class="card border-0 shadow-sm">
+    <div class="card border-0 shadow-sm mt-4">
         <div class="card-header bg-white d-flex justify-content-between align-items-center">
             <h5 class="mb-0"><i class="bi bi-clock-history text-primary"></i> Recent QR Codes</h5>
             <a href="manage-qr.php" class="btn btn-sm btn-outline-primary">View All</a>
